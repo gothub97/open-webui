@@ -987,6 +987,11 @@ app.mount("/ws", socket_app)
 app.include_router(ollama.router, prefix="/ollama", tags=["ollama"])
 app.include_router(openai.router, prefix="/openai", tags=["openai"])
 
+# Conditionally initialize SCIM router
+if app.state.config.ENABLE_SCIM:
+    from open_webui.routers import scim as scim_router
+    app.include_router(scim_router)
+    log.info("SCIM router initialized.")
 
 app.include_router(pipelines.router, prefix="/api/v1/pipelines", tags=["pipelines"])
 app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["tasks"])
