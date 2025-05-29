@@ -27,7 +27,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
-    Request,
+    Request, # Already present
     UploadFile,
     status,
     applications,
@@ -402,6 +402,19 @@ from open_webui.tasks import (
 )  # Import from tasks.py
 
 from open_webui.utils.redis import get_sentinels_from_env
+
+# Imports for SCIM Exception Handling
+from backend.open_webui.models.scim_schemas import SCIMError, ERROR_URN
+from backend.open_webui.utils.scim_exceptions import (
+    SCIMBadRequestError,
+    SCIMNotFoundError,
+    SCIMConflictError,
+    SCIMInternalServerError,
+    SCIMUnauthorizedError,
+    SCIMForbiddenError,
+    SCIMPreconditionFailedError,
+    SCIMNotImplementedError,
+)
 
 
 if SAFE_MODE:
@@ -986,6 +999,75 @@ app.mount("/ws", socket_app)
 
 app.include_router(ollama.router, prefix="/ollama", tags=["ollama"])
 app.include_router(openai.router, prefix="/openai", tags=["openai"])
+
+# Conditionally initialize SCIM router and exception handlers
+if app.state.config.ENABLE_SCIM:
+    # SCIM Router Imports
+    from open_webui.routers.scim_users import router as scim_users_router
+    from open_webui.routers.scim_groups import router as scim_groups_router
+    from open_webui.routers.scim_service_provider_config import router as scim_sp_config_router
+    from open_webui.routers.scim_resource_types import router as scim_resource_types_router
+    from open_webui.routers.scim_schemas import router as scim_schemas_router
+
+    # SCIM Exception Handlers
+    async def scim_error_handler(request: Request, exc: HTTPException, scim_type_default: str = "genericError"):
+        # This generic handler can be a fallback or used if exceptions don't have scim_type
+        detail = exc.detail if hasattr(exc, 'detail') else "An unexpected error occurred."
+        scim_type = getattr(exc, 'scim_type', scim_type_default)
+        
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=SCIMError(
+                schemas=[ERROR_URN],
+                detail=detail,
+                status=str(exc.status_code),
+                scimType=scim_type
+            ).model_dump(exclude_none=True),
+            media_type="application/scim+json",
+        )
+
+    async def scim_not_found_error_handler(request: Request, exc: SCIMNotFoundError):
+        return await scim_error_handler(request, exc, "notFound")
+
+    async def scim_bad_request_error_handler(request: Request, exc: SCIMBadRequestError):
+        return await scim_error_handler(request, exc, "invalidValue")
+
+    async def scim_conflict_error_handler(request: Request, exc: SCIMConflictError):
+        return await scim_error_handler(request, exc, "uniqueness")
+
+    async def scim_internal_server_error_handler(request: Request, exc: SCIMInternalServerError):
+        return await scim_error_handler(request, exc, "internalServerError")
+        
+    async def scim_unauthorized_error_handler(request: Request, exc: SCIMUnauthorizedError):
+        return await scim_error_handler(request, exc, "unauthorized")
+
+    async def scim_forbidden_error_handler(request: Request, exc: SCIMForbiddenError):
+        return await scim_error_handler(request, exc, "forbidden")
+
+    async def scim_precondition_failed_error_handler(request: Request, exc: SCIMPreconditionFailedError):
+        return await scim_error_handler(request, exc, "preconditionFailed")
+        
+    async def scim_not_implemented_error_handler(request: Request, exc: SCIMNotImplementedError):
+        return await scim_error_handler(request, exc, "notImplemented")
+
+    app.add_exception_handler(SCIMNotFoundError, scim_not_found_error_handler)
+    app.add_exception_handler(SCIMBadRequestError, scim_bad_request_error_handler)
+    app.add_exception_handler(SCIMConflictError, scim_conflict_error_handler)
+    app.add_exception_handler(SCIMInternalServerError, scim_internal_server_error_handler)
+    app.add_exception_handler(SCIMUnauthorizedError, scim_unauthorized_error_handler)
+    app.add_exception_handler(SCIMForbiddenError, scim_forbidden_error_handler)
+    app.add_exception_handler(SCIMPreconditionFailedError, scim_precondition_failed_error_handler)
+    app.add_exception_handler(SCIMNotImplementedError, scim_not_implemented_error_handler)
+    
+    log.info("SCIM custom exception handlers registered.")
+
+    # Include SCIM Routers
+    app.include_router(scim_users_router, prefix="/scim/v2")
+    app.include_router(scim_groups_router, prefix="/scim/v2")
+    app.include_router(scim_sp_config_router, prefix="/scim/v2")
+    app.include_router(scim_resource_types_router, prefix="/scim/v2")
+    app.include_router(scim_schemas_router, prefix="/scim/v2")
+    log.info("All SCIM routers initialized under /scim/v2 prefix.")
 
 
 app.include_router(pipelines.router, prefix="/api/v1/pipelines", tags=["pipelines"])
