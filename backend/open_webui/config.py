@@ -332,6 +332,22 @@ JWT_EXPIRES_IN = PersistentConfig(
 )
 
 ####################################
+# SCIM config
+####################################
+
+ENABLE_SCIM = PersistentConfig(
+    "ENABLE_SCIM",
+    "scim.enable",
+    os.environ.get("ENABLE_SCIM", "False").lower() == "true",
+)
+
+SCIM_TOKEN = PersistentConfig(
+    "SCIM_TOKEN",
+    "scim.token",
+    os.environ.get("SCIM_TOKEN", ""),
+)
+
+####################################
 # OAuth config
 ####################################
 
