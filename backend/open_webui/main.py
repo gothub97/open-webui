@@ -431,8 +431,9 @@ from open_webui.tasks import (
 from open_webui.utils.redis import get_sentinels_from_env
 
 # Imports for SCIM Exception Handling
-from backend.open_webui.models.scim_schemas import SCIMError, ERROR_URN
-from backend.open_webui.utils.scim_exceptions import (
+#from backend.open_webui.models.scim_schemas import SCIMError, ERROR_URN
+from open_webui.models.scim_schemas import SCIMError, ERROR_URN 
+from open_webui.utils.scim_exceptions import (
     SCIMBadRequestError,
     SCIMNotFoundError,
     SCIMConflictError,
