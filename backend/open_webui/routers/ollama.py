@@ -1232,6 +1232,9 @@ class GenerateChatCompletionForm(BaseModel):
     stream: Optional[bool] = True
     keep_alive: Optional[Union[int, str]] = None
     tools: Optional[list[dict]] = None
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 async def get_ollama_url(request: Request, model: str, url_idx: Optional[int] = None):
@@ -1269,7 +1272,9 @@ async def generate_chat_completion(
             detail=str(e),
         )
 
-    payload = {**form_data.model_dump(exclude_none=True)}
+    if isinstance(form_data, BaseModel):
+        payload = {**form_data.model_dump(exclude_none=True)}
+
     if "metadata" in payload:
         del payload["metadata"]
 
@@ -1283,13 +1288,10 @@ async def generate_chat_completion(
         params = model_info.params.model_dump()
 
         if params:
-            if payload.get("options") is None:
-                payload["options"] = {}
+            system = params.pop("system", None)
 
-            payload["options"] = apply_model_params_to_body_ollama(
-                params, payload["options"]
-            )
-            payload = apply_model_system_prompt_to_body(params, payload, metadata, user)
+            payload = apply_model_params_to_body_ollama(params, payload)
+            payload = apply_model_system_prompt_to_body(system, payload, metadata, user)
 
         # Check if user has access to the model
         if not bypass_filter and user.role == "user":
@@ -1322,7 +1324,7 @@ async def generate_chat_completion(
     prefix_id = api_config.get("prefix_id", None)
     if prefix_id:
         payload["model"] = payload["model"].replace(f"{prefix_id}.", "")
-    # payload["keep_alive"] = -1 # keep alive forever
+
     return await send_post_request(
         url=f"{url}/api/chat",
         payload=json.dumps(payload),
@@ -1471,8 +1473,10 @@ async def generate_openai_chat_completion(
         params = model_info.params.model_dump()
 
         if params:
+            system = params.pop("system", None)
+
             payload = apply_model_params_to_body_openai(params, payload)
-            payload = apply_model_system_prompt_to_body(params, payload, metadata, user)
+            payload = apply_model_system_prompt_to_body(system, payload, metadata, user)
 
         # Check if user has access to the model
         if user.role == "user":

@@ -46,6 +46,10 @@
 	let OpenAIUrl = '';
 	let OpenAIKey = '';
 
+	let AzureOpenAIUrl = '';
+	let AzureOpenAIKey = '';
+	let AzureOpenAIVersion = '';
+
 	let OllamaUrl = '';
 	let OllamaKey = '';
 
@@ -86,7 +90,14 @@
 			return;
 		}
 
-		if ((embeddingEngine === 'openai' && OpenAIKey === '') || OpenAIUrl === '') {
+		if (embeddingEngine === 'openai' && (OpenAIKey === '' || OpenAIUrl === '')) {
+			toast.error($i18n.t('OpenAI URL/Key required.'));
+			return;
+		}
+		if (
+			embeddingEngine === 'azure_openai' &&
+			(AzureOpenAIKey === '' || AzureOpenAIUrl === '' || AzureOpenAIVersion === '')
+		) {
 			toast.error($i18n.t('OpenAI URL/Key required.'));
 			return;
 		}
@@ -105,6 +116,11 @@
 			openai_config: {
 				key: OpenAIKey,
 				url: OpenAIUrl
+			},
+			azure_openai_config: {
+				key: AzureOpenAIKey,
+				url: AzureOpenAIUrl,
+				version: AzureOpenAIVersion
 			}
 		}).catch(async (error) => {
 			toast.error(`${error}`);
@@ -178,17 +194,20 @@
 			await embeddingModelUpdateHandler();
 		}
 
-		RAGConfig.ALLOWED_FILE_EXTENSIONS = (RAGConfig?.ALLOWED_FILE_EXTENSIONS ?? '')
-			.split(',')
-			.map((ext) => ext.trim())
-			.filter((ext) => ext !== '');
-
-		RAGConfig.DATALAB_MARKER_LANGS = RAGConfig.DATALAB_MARKER_LANGS.split(',')
-			.map((code) => code.trim())
-			.filter((code) => code !== '')
-			.join(', ');
-
-		const res = await updateRAGConfig(localStorage.token, RAGConfig);
+		const res = await updateRAGConfig(localStorage.token, {
+			...RAGConfig,
+			ALLOWED_FILE_EXTENSIONS: RAGConfig.ALLOWED_FILE_EXTENSIONS.split(',')
+				.map((ext) => ext.trim())
+				.filter((ext) => ext !== ''),
+			DATALAB_MARKER_LANGS: RAGConfig.DATALAB_MARKER_LANGS.split(',')
+				.map((code) => code.trim())
+				.filter((code) => code !== '')
+				.join(', '),
+			DOCLING_PICTURE_DESCRIPTION_LOCAL: JSON.parse(
+				RAGConfig.DOCLING_PICTURE_DESCRIPTION_LOCAL || '{}'
+			),
+			DOCLING_PICTURE_DESCRIPTION_API: JSON.parse(RAGConfig.DOCLING_PICTURE_DESCRIPTION_API || '{}')
+		});
 		dispatch('save');
 	};
 
@@ -205,6 +224,10 @@
 
 			OllamaKey = embeddingConfig.ollama_config.key;
 			OllamaUrl = embeddingConfig.ollama_config.url;
+
+			AzureOpenAIKey = embeddingConfig.azure_openai_config.key;
+			AzureOpenAIUrl = embeddingConfig.azure_openai_config.url;
+			AzureOpenAIVersion = embeddingConfig.azure_openai_config.version;
 		}
 	};
 	onMount(async () => {
@@ -212,6 +235,18 @@
 
 		const config = await getRAGConfig(localStorage.token);
 		config.ALLOWED_FILE_EXTENSIONS = (config?.ALLOWED_FILE_EXTENSIONS ?? []).join(', ');
+
+		config.DOCLING_PICTURE_DESCRIPTION_LOCAL = JSON.stringify(
+			config.DOCLING_PICTURE_DESCRIPTION_LOCAL ?? {},
+			null,
+			2
+		);
+		config.DOCLING_PICTURE_DESCRIPTION_API = JSON.stringify(
+			config.DOCLING_PICTURE_DESCRIPTION_API ?? {},
+			null,
+			2
+		);
+
 		RAGConfig = config;
 	});
 </script>
@@ -490,6 +525,71 @@
 									</div>
 								</div>
 							</div>
+							{#if RAGConfig.DOCLING_DO_PICTURE_DESCRIPTION}
+								<div class="flex justify-between w-full mt-2">
+									<div class="self-center text-xs font-medium">
+										<Tooltip content={''} placement="top-start">
+											{$i18n.t('Picture Description Mode')}
+										</Tooltip>
+									</div>
+									<div class="">
+										<select
+											class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
+											bind:value={RAGConfig.DOCLING_PICTURE_DESCRIPTION_MODE}
+										>
+											<option value="">{$i18n.t('Default')}</option>
+											<option value="local">{$i18n.t('Local')}</option>
+											<option value="api">{$i18n.t('API')}</option>
+										</select>
+									</div>
+								</div>
+
+								{#if RAGConfig.DOCLING_PICTURE_DESCRIPTION_MODE === 'local'}
+									<div class="flex flex-col gap-2 mt-2">
+										<div class=" flex flex-col w-full justify-between">
+											<div class=" mb-1 text-xs font-medium">
+												{$i18n.t('Picture Description Local Config')}
+											</div>
+											<div class="flex w-full items-center relative">
+												<Tooltip
+													content={$i18n.t(
+														'Options for running a local vision-language model in the picture description. The parameters refer to a model hosted on Hugging Face. This parameter is mutually exclusive with picture_description_api.'
+													)}
+													placement="top-start"
+													className="w-full"
+												>
+													<Textarea
+														bind:value={RAGConfig.DOCLING_PICTURE_DESCRIPTION_LOCAL}
+														placeholder={$i18n.t('Enter Config in JSON format')}
+													/>
+												</Tooltip>
+											</div>
+										</div>
+									</div>
+								{:else if RAGConfig.DOCLING_PICTURE_DESCRIPTION_MODE === 'api'}
+									<div class="flex flex-col gap-2 mt-2">
+										<div class=" flex flex-col w-full justify-between">
+											<div class=" mb-1 text-xs font-medium">
+												{$i18n.t('Picture Description API Config')}
+											</div>
+											<div class="flex w-full items-center relative">
+												<Tooltip
+													content={$i18n.t(
+														'API details for using a vision-language model in the picture description. This parameter is mutually exclusive with picture_description_local.'
+													)}
+													placement="top-start"
+													className="w-full"
+												>
+													<Textarea
+														bind:value={RAGConfig.DOCLING_PICTURE_DESCRIPTION_API}
+														placeholder={$i18n.t('Enter Config in JSON format')}
+													/>
+												</Tooltip>
+											</div>
+										</div>
+									</div>
+								{/if}
+							{/if}
 						{:else if RAGConfig.CONTENT_EXTRACTION_ENGINE === 'document_intelligence'}
 							<div class="my-0.5 flex gap-2 pr-2">
 								<input
@@ -607,6 +707,8 @@
 												embeddingModel = '';
 											} else if (e.target.value === 'openai') {
 												embeddingModel = 'text-embedding-3-small';
+											} else if (e.target.value === 'azure_openai') {
+												embeddingModel = 'text-embedding-3-small';
 											} else if (e.target.value === '') {
 												embeddingModel = 'sentence-transformers/all-MiniLM-L6-v2';
 											}
@@ -615,6 +717,7 @@
 										<option value="">{$i18n.t('Default (SentenceTransformers)')}</option>
 										<option value="ollama">{$i18n.t('Ollama')}</option>
 										<option value="openai">{$i18n.t('OpenAI')}</option>
+										<option value="azure_openai">Azure OpenAI</option>
 									</select>
 								</div>
 							</div>
@@ -644,6 +747,26 @@
 										bind:value={OllamaKey}
 										required={false}
 									/>
+								</div>
+							{:else if embeddingEngine === 'azure_openai'}
+								<div class="my-0.5 flex flex-col gap-2 pr-2 w-full">
+									<div class="flex gap-2">
+										<input
+											class="flex-1 w-full text-sm bg-transparent outline-hidden"
+											placeholder={$i18n.t('API Base URL')}
+											bind:value={AzureOpenAIUrl}
+											required
+										/>
+										<SensitiveInput placeholder={$i18n.t('API Key')} bind:value={AzureOpenAIKey} />
+									</div>
+									<div class="flex gap-2">
+										<input
+											class="flex-1 w-full text-sm bg-transparent outline-hidden"
+											placeholder="Version"
+											bind:value={AzureOpenAIVersion}
+											required
+										/>
+									</div>
 								</div>
 							{/if}
 						</div>
@@ -741,7 +864,7 @@
 							</div>
 						</div>
 
-						{#if embeddingEngine === 'ollama' || embeddingEngine === 'openai'}
+						{#if embeddingEngine === 'ollama' || embeddingEngine === 'openai' || embeddingEngine === 'azure_openai'}
 							<div class="  mb-2.5 flex w-full justify-between">
 								<div class=" self-center text-xs font-medium">
 									{$i18n.t('Embedding Batch Size')}
@@ -787,12 +910,7 @@
 							<div class="  mb-2.5 flex w-full justify-between">
 								<div class=" self-center text-xs font-medium">{$i18n.t('Hybrid Search')}</div>
 								<div class="flex items-center relative">
-									<Switch
-										bind:state={RAGConfig.ENABLE_RAG_HYBRID_SEARCH}
-										on:change={() => {
-											submitHandler();
-										}}
-									/>
+									<Switch bind:state={RAGConfig.ENABLE_RAG_HYBRID_SEARCH} />
 								</div>
 							</div>
 
