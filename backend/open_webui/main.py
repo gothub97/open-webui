@@ -30,7 +30,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
-    Request, # Already present
+    Request,  # Already present
     UploadFile,
     status,
     applications,
@@ -349,6 +349,9 @@ from open_webui.config import (
     LDAP_CA_CERT_FILE,
     LDAP_VALIDATE_CERT,
     LDAP_CIPHERS,
+    # WebUI (SAML)
+    ENABLE_SAML,
+    SAML_CALLBACK_URL,
     # Misc
     ENV,
     CACHE_DIR,
@@ -435,6 +438,7 @@ from open_webui.utils.auth import (
 )
 from open_webui.utils.plugin import install_tool_and_function_dependencies
 from open_webui.utils.oauth import OAuthManager
+from open_webui.utils.saml import SAMLManager
 from open_webui.utils.security_headers import SecurityHeadersMiddleware
 from open_webui.utils.redis import get_redis_connection
 
@@ -448,8 +452,8 @@ from open_webui.tasks import (
 from open_webui.utils.redis import get_sentinels_from_env
 
 # Imports for SCIM Exception Handling
-#from backend.open_webui.models.scim_schemas import SCIMError, ERROR_URN
-from open_webui.models.scim_schemas import SCIMError, ERROR_URN 
+# from backend.open_webui.models.scim_schemas import SCIMError, ERROR_URN
+from open_webui.models.scim_schemas import SCIMError, ERROR_URN
 from open_webui.utils.scim_exceptions import (
     SCIMBadRequestError,
     SCIMNotFoundError,
@@ -555,6 +559,7 @@ app = FastAPI(
 )
 
 oauth_manager = OAuthManager(app)
+saml_manager = SAMLManager(app)
 
 app.state.instance_id = None
 app.state.config = AppConfig(
@@ -691,6 +696,9 @@ app.state.config.LDAP_USE_TLS = LDAP_USE_TLS
 app.state.config.LDAP_CA_CERT_FILE = LDAP_CA_CERT_FILE
 app.state.config.LDAP_VALIDATE_CERT = LDAP_VALIDATE_CERT
 app.state.config.LDAP_CIPHERS = LDAP_CIPHERS
+
+app.state.config.ENABLE_SAML = ENABLE_SAML
+app.state.config.SAML_CALLBACK_URL = SAML_CALLBACK_URL
 
 
 app.state.AUTH_TRUSTED_EMAIL_HEADER = WEBUI_AUTH_TRUSTED_EMAIL_HEADER
@@ -1133,23 +1141,31 @@ if app.state.config.ENABLE_SCIM:
     # SCIM Router Imports
     from open_webui.routers.scim_users import router as scim_users_router
     from open_webui.routers.scim_groups import router as scim_groups_router
-    from open_webui.routers.scim_service_provider_config import router as scim_sp_config_router
-    from open_webui.routers.scim_resource_types import router as scim_resource_types_router
+    from open_webui.routers.scim_service_provider_config import (
+        router as scim_sp_config_router,
+    )
+    from open_webui.routers.scim_resource_types import (
+        router as scim_resource_types_router,
+    )
     from open_webui.routers.scim_schemas import router as scim_schemas_router
 
     # SCIM Exception Handlers
-    async def scim_error_handler(request: Request, exc: HTTPException, scim_type_default: str = "genericError"):
+    async def scim_error_handler(
+        request: Request, exc: HTTPException, scim_type_default: str = "genericError"
+    ):
         # This generic handler can be a fallback or used if exceptions don't have scim_type
-        detail = exc.detail if hasattr(exc, 'detail') else "An unexpected error occurred."
-        scim_type = getattr(exc, 'scim_type', scim_type_default)
-        
+        detail = (
+            exc.detail if hasattr(exc, "detail") else "An unexpected error occurred."
+        )
+        scim_type = getattr(exc, "scim_type", scim_type_default)
+
         return JSONResponse(
             status_code=exc.status_code,
             content=SCIMError(
                 schemas=[ERROR_URN],
                 detail=detail,
                 status=str(exc.status_code),
-                scimType=scim_type
+                scimType=scim_type,
             ).model_dump(exclude_none=True),
             media_type="application/scim+json",
         )
@@ -1157,36 +1173,52 @@ if app.state.config.ENABLE_SCIM:
     async def scim_not_found_error_handler(request: Request, exc: SCIMNotFoundError):
         return await scim_error_handler(request, exc, "notFound")
 
-    async def scim_bad_request_error_handler(request: Request, exc: SCIMBadRequestError):
+    async def scim_bad_request_error_handler(
+        request: Request, exc: SCIMBadRequestError
+    ):
         return await scim_error_handler(request, exc, "invalidValue")
 
     async def scim_conflict_error_handler(request: Request, exc: SCIMConflictError):
         return await scim_error_handler(request, exc, "uniqueness")
 
-    async def scim_internal_server_error_handler(request: Request, exc: SCIMInternalServerError):
+    async def scim_internal_server_error_handler(
+        request: Request, exc: SCIMInternalServerError
+    ):
         return await scim_error_handler(request, exc, "internalServerError")
-        
-    async def scim_unauthorized_error_handler(request: Request, exc: SCIMUnauthorizedError):
+
+    async def scim_unauthorized_error_handler(
+        request: Request, exc: SCIMUnauthorizedError
+    ):
         return await scim_error_handler(request, exc, "unauthorized")
 
     async def scim_forbidden_error_handler(request: Request, exc: SCIMForbiddenError):
         return await scim_error_handler(request, exc, "forbidden")
 
-    async def scim_precondition_failed_error_handler(request: Request, exc: SCIMPreconditionFailedError):
+    async def scim_precondition_failed_error_handler(
+        request: Request, exc: SCIMPreconditionFailedError
+    ):
         return await scim_error_handler(request, exc, "preconditionFailed")
-        
-    async def scim_not_implemented_error_handler(request: Request, exc: SCIMNotImplementedError):
+
+    async def scim_not_implemented_error_handler(
+        request: Request, exc: SCIMNotImplementedError
+    ):
         return await scim_error_handler(request, exc, "notImplemented")
 
     app.add_exception_handler(SCIMNotFoundError, scim_not_found_error_handler)
     app.add_exception_handler(SCIMBadRequestError, scim_bad_request_error_handler)
     app.add_exception_handler(SCIMConflictError, scim_conflict_error_handler)
-    app.add_exception_handler(SCIMInternalServerError, scim_internal_server_error_handler)
+    app.add_exception_handler(
+        SCIMInternalServerError, scim_internal_server_error_handler
+    )
     app.add_exception_handler(SCIMUnauthorizedError, scim_unauthorized_error_handler)
     app.add_exception_handler(SCIMForbiddenError, scim_forbidden_error_handler)
-    app.add_exception_handler(SCIMPreconditionFailedError, scim_precondition_failed_error_handler)
-    app.add_exception_handler(SCIMNotImplementedError, scim_not_implemented_error_handler)
-    
+    app.add_exception_handler(
+        SCIMPreconditionFailedError, scim_precondition_failed_error_handler
+    )
+    app.add_exception_handler(
+        SCIMNotImplementedError, scim_not_implemented_error_handler
+    )
+
     log.info("SCIM custom exception handlers registered.")
 
     # Include SCIM Routers
@@ -1203,23 +1235,31 @@ if app.state.config.ENABLE_SCIM:
     # SCIM Router Imports
     from open_webui.routers.scim_users import router as scim_users_router
     from open_webui.routers.scim_groups import router as scim_groups_router
-    from open_webui.routers.scim_service_provider_config import router as scim_sp_config_router
-    from open_webui.routers.scim_resource_types import router as scim_resource_types_router
+    from open_webui.routers.scim_service_provider_config import (
+        router as scim_sp_config_router,
+    )
+    from open_webui.routers.scim_resource_types import (
+        router as scim_resource_types_router,
+    )
     from open_webui.routers.scim_schemas import router as scim_schemas_router
 
     # SCIM Exception Handlers
-    async def scim_error_handler(request: Request, exc: HTTPException, scim_type_default: str = "genericError"):
+    async def scim_error_handler(
+        request: Request, exc: HTTPException, scim_type_default: str = "genericError"
+    ):
         # This generic handler can be a fallback or used if exceptions don't have scim_type
-        detail = exc.detail if hasattr(exc, 'detail') else "An unexpected error occurred."
-        scim_type = getattr(exc, 'scim_type', scim_type_default)
-        
+        detail = (
+            exc.detail if hasattr(exc, "detail") else "An unexpected error occurred."
+        )
+        scim_type = getattr(exc, "scim_type", scim_type_default)
+
         return JSONResponse(
             status_code=exc.status_code,
             content=SCIMError(
                 schemas=[ERROR_URN],
                 detail=detail,
                 status=str(exc.status_code),
-                scimType=scim_type
+                scimType=scim_type,
             ).model_dump(exclude_none=True),
             media_type="application/scim+json",
         )
@@ -1227,36 +1267,52 @@ if app.state.config.ENABLE_SCIM:
     async def scim_not_found_error_handler(request: Request, exc: SCIMNotFoundError):
         return await scim_error_handler(request, exc, "notFound")
 
-    async def scim_bad_request_error_handler(request: Request, exc: SCIMBadRequestError):
+    async def scim_bad_request_error_handler(
+        request: Request, exc: SCIMBadRequestError
+    ):
         return await scim_error_handler(request, exc, "invalidValue")
 
     async def scim_conflict_error_handler(request: Request, exc: SCIMConflictError):
         return await scim_error_handler(request, exc, "uniqueness")
 
-    async def scim_internal_server_error_handler(request: Request, exc: SCIMInternalServerError):
+    async def scim_internal_server_error_handler(
+        request: Request, exc: SCIMInternalServerError
+    ):
         return await scim_error_handler(request, exc, "internalServerError")
-        
-    async def scim_unauthorized_error_handler(request: Request, exc: SCIMUnauthorizedError):
+
+    async def scim_unauthorized_error_handler(
+        request: Request, exc: SCIMUnauthorizedError
+    ):
         return await scim_error_handler(request, exc, "unauthorized")
 
     async def scim_forbidden_error_handler(request: Request, exc: SCIMForbiddenError):
         return await scim_error_handler(request, exc, "forbidden")
 
-    async def scim_precondition_failed_error_handler(request: Request, exc: SCIMPreconditionFailedError):
+    async def scim_precondition_failed_error_handler(
+        request: Request, exc: SCIMPreconditionFailedError
+    ):
         return await scim_error_handler(request, exc, "preconditionFailed")
-        
-    async def scim_not_implemented_error_handler(request: Request, exc: SCIMNotImplementedError):
+
+    async def scim_not_implemented_error_handler(
+        request: Request, exc: SCIMNotImplementedError
+    ):
         return await scim_error_handler(request, exc, "notImplemented")
 
     app.add_exception_handler(SCIMNotFoundError, scim_not_found_error_handler)
     app.add_exception_handler(SCIMBadRequestError, scim_bad_request_error_handler)
     app.add_exception_handler(SCIMConflictError, scim_conflict_error_handler)
-    app.add_exception_handler(SCIMInternalServerError, scim_internal_server_error_handler)
+    app.add_exception_handler(
+        SCIMInternalServerError, scim_internal_server_error_handler
+    )
     app.add_exception_handler(SCIMUnauthorizedError, scim_unauthorized_error_handler)
     app.add_exception_handler(SCIMForbiddenError, scim_forbidden_error_handler)
-    app.add_exception_handler(SCIMPreconditionFailedError, scim_precondition_failed_error_handler)
-    app.add_exception_handler(SCIMNotImplementedError, scim_not_implemented_error_handler)
-    
+    app.add_exception_handler(
+        SCIMPreconditionFailedError, scim_precondition_failed_error_handler
+    )
+    app.add_exception_handler(
+        SCIMNotImplementedError, scim_not_implemented_error_handler
+    )
+
     log.info("SCIM custom exception handlers registered.")
 
     # Include SCIM Routers
@@ -1266,7 +1322,6 @@ if app.state.config.ENABLE_SCIM:
     app.include_router(scim_resource_types_router, prefix="/scim/v2")
     app.include_router(scim_schemas_router, prefix="/scim/v2")
     log.info("All SCIM routers initialized under /scim/v2 prefix.")
-
 
 
 app.include_router(pipelines.router, prefix="/api/v1/pipelines", tags=["pipelines"])
@@ -1803,6 +1858,16 @@ async def oauth_login(provider: str, request: Request):
 @app.get("/oauth/{provider}/callback")
 async def oauth_callback(provider: str, request: Request, response: Response):
     return await oauth_manager.handle_callback(request, provider, response)
+
+
+@app.get("/saml/login")
+async def saml_login(request: Request):
+    return await saml_manager.handle_login(request)
+
+
+@app.post("/saml/acs")
+async def saml_acs(request: Request, response: Response):
+    return await saml_manager.handle_acs(request, response)
 
 
 @app.get("/manifest.json")
