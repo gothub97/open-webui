@@ -3091,3 +3091,55 @@ LDAP_VALIDATE_CERT = PersistentConfig(
 LDAP_CIPHERS = PersistentConfig(
     "LDAP_CIPHERS", "ldap.server.ciphers", os.environ.get("LDAP_CIPHERS", "ALL")
 )
+
+####################################
+# SAML2
+####################################
+
+ENABLE_SAML = PersistentConfig(
+    "ENABLE_SAML",
+    "saml.enable",
+    os.environ.get("ENABLE_SAML", "false").lower() == "true",
+)
+
+SAML_ENTITY_ID = PersistentConfig(
+    "SAML_ENTITY_ID",
+    "saml.entity_id",
+    os.environ.get("SAML_ENTITY_ID", "openwebui"),
+)
+
+SAML_CALLBACK_URL = PersistentConfig(
+    "SAML_CALLBACK_URL",
+    "saml.callback_url",
+    os.environ.get("SAML_CALLBACK_URL", ""),
+)
+
+SAML_IDP_ENTITY_ID = PersistentConfig(
+    "SAML_IDP_ENTITY_ID",
+    "saml.idp.entity_id",
+    os.environ.get("SAML_IDP_ENTITY_ID", ""),
+)
+
+SAML_IDP_SSO_URL = PersistentConfig(
+    "SAML_IDP_SSO_URL",
+    "saml.idp.sso_url",
+    os.environ.get("SAML_IDP_SSO_URL", ""),
+)
+
+SAML_IDP_CERT = PersistentConfig(
+    "SAML_IDP_CERT",
+    "saml.idp.cert",
+    os.environ.get("SAML_IDP_CERT", ""),
+)
+
+SAML_SP_CERT = PersistentConfig(
+    "SAML_SP_CERT",
+    "saml.sp.cert",
+    os.environ.get("SAML_SP_CERT", ""),
+)
+
+SAML_SP_KEY = PersistentConfig(
+    "SAML_SP_KEY",
+    "saml.sp.key",
+    os.environ.get("SAML_SP_KEY", ""),
+)
